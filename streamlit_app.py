@@ -172,3 +172,153 @@ with col9:
 
 st.markdown("---")
 st.markdown("**Built with ❤️ using Streamlit and Machine Learning**")
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import cdist
+
+class CrimeDroneSimulation:
+    def __init__(self, grid_size=1000, num_drones=2):
+        self.grid_size = grid_size  # 1km x 1km grid
+        self.num_drones = num_drones
+        self.hotspots = []
+        self.drone_positions = []
+        
+    def generate_hotspots(self, num_hotspots=10):
+        """Generate random crime hotspots within the grid"""
+        np.random.seed(42)
+        self.hotspots = np.random.rand(num_hotspots, 2) * self.grid_size
+        return self.hotspots
+    
+    def initialize_drones(self):
+        """Initialize drone positions at corners of the grid"""
+        corners = np.array([[0, 0], [self.grid_size, 0], 
+                          [0, self.grid_size], [self.grid_size, self.grid_size]])
+        self.drone_positions = corners[:self.num_drones]
+        return self.drone_positions
+    
+    def nearest_neighbor_path(self, start_position, points):
+        """Calculate nearest neighbor path"""
+        unvisited = points.copy()
+        path = [start_position]
+        current_point = start_position
+        
+        while len(unvisited) > 0:
+            # Find nearest unvisited point
+            distances = cdist([current_point], unvisited)[0]
+            nearest_idx = np.argmin(distances)
+            next_point = unvisited[nearest_idx]
+            
+            path.append(next_point)
+            current_point = next_point
+            unvisited = np.delete(unvisited, nearest_idx, axis=0)
+        
+        return np.array(path)
+    
+    def lawnmower_pattern(self, start_point, area_width, area_height, step_size=100):
+        """Generate lawnmower pattern coverage"""
+        x_coords = []
+        y_coords = []
+        
+        x, y = start_point
+        direction = 1  # 1 for right, -1 for left
+        
+        while y <= start_point[1] + area_height:
+            while (direction == 1 and x <= start_point[0] + area_width) or \
+                  (direction == -1 and x >= start_point[0]):
+                x_coords.append(x)
+                y_coords.append(y)
+                x += step_size * direction
+            
+            # Move up and reverse direction
+            y += step_size
+            direction *= -1
+            # Adjust x to stay within bounds
+            x = max(0, min(x, start_point[0] + area_width))
+        
+        return np.column_stack([x_coords, y_coords])
+    
+    def simulate_flight(self, method='nearest_neighbor'):
+        """Simulate drone flight pattern"""
+        if method == 'nearest_neighbor':
+            paths = []
+            for i, start_pos in enumerate(self.drone_positions):
+                # Assign hotspots to drones (simple partitioning)
+                drone_hotspots = self.hotspots[i::self.num_drones]
+                if len(drone_hotspots) > 0:
+                    path = self.nearest_neighbor_path(start_pos, drone_hotspots)
+                    paths.append(path)
+            return paths
+        
+        elif method == 'lawnmower':
+            paths = []
+            for i, start_pos in enumerate(self.drone_positions):
+                # Each drone covers a section of the grid
+                section_width = self.grid_size / self.num_drones
+                area_start = [i * section_width, 0]
+                path = self.lawnmower_pattern(area_start, section_width, self.grid_size)
+                paths.append(path)
+            return paths
+    
+    def visualize_simulation(self, paths, method_name):
+        """Visualize drone paths and hotspots"""
+        plt.figure(figsize=(12, 8))
+        
+        # Plot hotspots
+        plt.scatter(self.hotspots[:, 0], self.hotspots[:, 1], 
+                   c='red', s=100, label='Crime Hotspots', alpha=0.7)
+        
+        # Plot drone paths
+        colors = ['blue', 'green', 'orange', 'purple']
+        for i, path in enumerate(paths):
+            if len(path) > 0:
+                color = colors[i % len(colors)]
+                plt.plot(path[:, 0], path[:, 1], 
+                        color=color, linewidth=2, marker='o', 
+                        label=f'Drone {i+1} Path')
+                plt.scatter(path[0, 0], path[0, 1], 
+                          color=color, s=200, marker='s', edgecolors='black')
+        
+        plt.xlabel('X Coordinate (meters)')
+        plt.ylabel('Y Coordinate (meters)')
+        plt.title(f'Drone Surveillance Simulation - {method_name}')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.xlim(0, self.grid_size)
+        plt.ylim(0, self.grid_size)
+        plt.gca().set_aspect('equal')
+        plt.show()
+
+# Run simulation
+print("🚁 DRONE SURVEILLANCE SIMULATION")
+print("=" * 50)
+
+drone_sim = CrimeDroneSimulation(grid_size=1000, num_drones=2)
+
+# Generate crime hotspots (using actual hotspot data from our analysis)
+hotspots = drone_sim.generate_hotspots(num_hotspots=8)
+drone_sim.initialize_drones()
+
+print(f"Generated {len(hotspots)} crime hotspots")
+print(f"Initialized {drone_sim.num_drones} drones")
+
+# Test different path planning methods
+methods = ['nearest_neighbor', 'lawnmower']
+
+for method in methods:
+    print(f"\n📡 Testing {method.replace('_', ' ').title()} Method:")
+    paths = drone_sim.simulate_flight(method=method)
+    
+    # Calculate path statistics
+    total_distance = 0
+    for i, path in enumerate(paths):
+        if len(path) > 1:
+            distance = np.sum(np.sqrt(np.sum(np.diff(path, axis=0)**2, axis=1)))
+            total_distance += distance
+            print(f"  Drone {i+1}: {len(path)} waypoints, {distance:.0f} meters")
+    
+    print(f"  Total distance: {total_distance:.0f} meters")
+    
+    # Visualize
+    drone_sim.visualize_simulation(paths, method.replace('_', ' ').title())

@@ -1,5 +1,3 @@
-# CORRECTED STREAMLIT DASHBOARD (app.py)
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,44 +5,45 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+import warnings
+warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(page_title="SA Crime Analytics", page_icon="🔍", layout="wide")
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv('SouthAfricaCrimeStats_v2.csv')
-    year_columns = df.columns[3:]
-    df_long = pd.melt(df, 
-                     id_vars=['Province', 'Station', 'Category'], 
-                     value_vars=year_columns,
-                     var_name='Year', 
-                     value_name='Incidents')
-    df_long['Year'] = pd.to_datetime(df_long['Year'].str.split('-').str[0])
-
-    from sklearn.model_selection import cross_val_score, GridSearchCV
-from xgboost import XGBClassifier
-
-# Hyperparameter tuning for better performance
-param_grid = {
-    'n_estimators': [50, 100, 200],
-    'max_depth': [3, 5, 7],
-    'learning_rate': [0.01, 0.1, 0.2]
-}
-
-xgb = XGBClassifier(random_state=42)
-grid_search = GridSearchCV(xgb, param_grid, cv=5, scoring='roc_auc')
-grid_search.fit(X_train_scaled, y_train)
-
-print("Best parameters:", grid_search.best_params_)
-print("Best cross-validation score:", grid_search.best_score_)
-
-# Feature engineering improvements
-# Add seasonal features, demographic data integration, etc.
-    return df, df_long
+    try:
+        df = pd.read_csv('SouthAfricaCrimeStats_v2.csv')
+        
+        # Get year columns (all columns from index 3 onwards)
+        year_columns = [col for col in df.columns if '-' in col]
+        
+        # Reshape data
+        df_long = pd.melt(df, 
+                         id_vars=['Province', 'Station', 'Category'], 
+                         value_vars=year_columns,
+                         var_name='Year', 
+                         value_name='Incidents')
+        
+        # Convert year to datetime
+        df_long['Year'] = pd.to_datetime(df_long['Year'].str.split('-').str[0])
+        df_long['Year_Num'] = df_long['Year'].dt.year
+        
+        return df, df_long
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None, None
 
 # Load data
 df, df_long = load_data()
+
+if df is None:
+    st.stop()
 
 # Title
 st.title("🔍 South Africa Crime Analytics Dashboard")
@@ -105,73 +104,81 @@ with col2:
 # Hotspot Analysis
 st.subheader("🎯 Crime Hotspot Analysis")
 
-# Simple hotspot calculation
-hotspot_threshold = df_long.groupby(['Station', 'Category'])['Incidents'].sum().quantile(0.75)
-hotspots = df_long.groupby(['Station', 'Category'])['Incidents'].sum().reset_index()
-hotspots['Is_Hotspot'] = (hotspots['Incidents'] >= hotspot_threshold).astype(int)
+try:
+    # Simple hotspot calculation
+    hotspot_threshold = df_long.groupby(['Station', 'Category'])['Incidents'].sum().quantile(0.75)
+    hotspots = df_long.groupby(['Station', 'Category'])['Incidents'].sum().reset_index()
+    hotspots['Is_Hotspot'] = (hotspots['Incidents'] >= hotspot_threshold).astype(int)
+    
+    col3, col4, col5 = st.columns(3)
+    
+    with col3:
+        st.metric("🔴 Hotspot Threshold", f"{hotspot_threshold:.0f}+ incidents")
+    
+    with col4:
+        total_hotspots = hotspots['Is_Hotspot'].sum()
+        st.metric("📍 Hotspots Identified", f"{total_hotspots}")
+    
+    with col5:
+        hotspot_percentage = (hotspots['Is_Hotspot'].mean() * 100)
+        st.metric("📊 Hotspot Percentage", f"{hotspot_percentage:.1f}%")
+    
+    # Top hotspots
+    st.subheader("🔥 Top Crime Hotspots")
+    top_hotspots = hotspots[hotspots['Is_Hotspot'] == 1].nlargest(10, 'Incidents')
+    st.dataframe(top_hotspots[['Station', 'Category', 'Incidents']], 
+                 use_container_width=True)
 
-col3, col4, col5 = st.columns(3)
+except Exception as e:
+    st.error(f"Error in hotspot analysis: {e}")
 
-with col3:
-    st.metric("🔴 Hotspot Threshold", f"{hotspot_threshold:.0f}+ incidents")
-
-with col4:
-    total_hotspots = hotspots['Is_Hotspot'].sum()
-    st.metric("📍 Hotspots Identified", f"{total_hotspots}")
-
-with col5:
-    hotspot_percentage = (hotspots['Is_Hotspot'].mean() * 100)
-    st.metric("📊 Hotspot Percentage", f"{hotspot_percentage:.1f}%")
-
-# Top hotspots
-st.subheader("🔥 Top Crime Hotspots")
-top_hotspots = hotspots[hotspots['Is_Hotspot'] == 1].nlargest(10, 'Incidents')
-st.dataframe(top_hotspots[['Station', 'Category', 'Incidents']], 
-             use_container_width=True)
-
-# Forecast Section
+# Simple Forecasting Section
 st.subheader("🔮 Crime Forecasting")
 
 if not filtered_data.empty:
-    # Select station for forecast
-    available_stations = filtered_data['Station'].unique()
-    selected_station = st.selectbox("Select Station for Forecast", available_stations)
-    
-    station_data = filtered_data[filtered_data['Station'] == selected_station]
-    
-    if len(station_data) > 2:
-        # Simple linear forecast
-        years = station_data['Year'].dt.year.values
-        incidents = station_data['Incidents'].values
+    try:
+        # Select station for forecast
+        available_stations = filtered_data['Station'].unique()
+        selected_station = st.selectbox("Select Station for Forecast", available_stations)
         
-        # Fit trend
-        trend = np.polyfit(years - years[0], incidents, 1)
+        station_data = filtered_data[filtered_data['Station'] == selected_station]
         
-        # Forecast next 2 years
-        future_years = [years[-1] + 1, years[-1] + 2]
-        forecast_values = np.polyval(trend, [years[-1] - years[0] + 1, years[-1] - years[0] + 2])
-        
-        # Create forecast plot
-        fig = go.Figure()
-        
-        # Historical data
-        fig.add_trace(go.Scatter(x=years, y=incidents,
-                               mode='lines+markers', name='Historical',
-                               line=dict(color='blue', width=3)))
-        
-        # Forecast
-        fig.add_trace(go.Scatter(x=future_years, y=forecast_values,
-                               mode='lines+markers', name='Forecast',
-                               line=dict(color='red', width=3, dash='dash')))
-        
-        fig.update_layout(title=f'2-Year Forecast for {selected_station}',
-                         xaxis_title='Year', yaxis_title='Incidents')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Display forecast values
-        st.write("**Forecast Results:**")
-        for year, value in zip(future_years, forecast_values):
-            st.write(f"- {year}: {value:.0f} incidents")
+        if len(station_data) > 2:
+            # Simple linear forecast
+            years = station_data['Year_Num'].values
+            incidents = station_data['Incidents'].values
+            
+            # Fit trend
+            trend = np.polyfit(years - years[0], incidents, 1)
+            
+            # Forecast next 2 years
+            future_years = [years[-1] + 1, years[-1] + 2]
+            forecast_values = np.polyval(trend, [years[-1] - years[0] + 1, years[-1] - years[0] + 2])
+            
+            # Create forecast plot
+            fig = go.Figure()
+            
+            # Historical data
+            fig.add_trace(go.Scatter(x=years, y=incidents,
+                                   mode='lines+markers', name='Historical',
+                                   line=dict(color='blue', width=3)))
+            
+            # Forecast
+            fig.add_trace(go.Scatter(x=future_years, y=forecast_values,
+                                   mode='lines+markers', name='Forecast',
+                                   line=dict(color='red', width=3, dash='dash')))
+            
+            fig.update_layout(title=f'2-Year Forecast for {selected_station}',
+                             xaxis_title='Year', yaxis_title='Incidents')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display forecast values
+            st.write("**Forecast Results:**")
+            for year, value in zip(future_years, forecast_values):
+                st.write(f"- {year}: {value:.0f} incidents")
+                
+    except Exception as e:
+        st.error(f"Error in forecasting: {e}")
 
 # Data Summary
 st.subheader("📋 Dataset Summary")
@@ -192,181 +199,3 @@ with col9:
 
 st.markdown("---")
 st.markdown("**Built with ❤️ using Streamlit and Machine Learning**")
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.spatial.distance import cdist
-
-class CrimeDroneSimulation:
-    def __init__(self, grid_size=1000, num_drones=2):
-        self.grid_size = grid_size  # 1km x 1km grid
-        self.num_drones = num_drones
-        self.hotspots = []
-        self.drone_positions = []
-        
-    def generate_hotspots(self, num_hotspots=10):
-        """Generate random crime hotspots within the grid"""
-        np.random.seed(42)
-        self.hotspots = np.random.rand(num_hotspots, 2) * self.grid_size
-        return self.hotspots
-    
-    def initialize_drones(self):
-        """Initialize drone positions at corners of the grid"""
-        corners = np.array([[0, 0], [self.grid_size, 0], 
-                          [0, self.grid_size], [self.grid_size, self.grid_size]])
-        self.drone_positions = corners[:self.num_drones]
-        return self.drone_positions
-    
-    def nearest_neighbor_path(self, start_position, points):
-        """Calculate nearest neighbor path"""
-        unvisited = points.copy()
-        path = [start_position]
-        current_point = start_position
-        
-        while len(unvisited) > 0:
-            # Find nearest unvisited point
-            distances = cdist([current_point], unvisited)[0]
-            nearest_idx = np.argmin(distances)
-            next_point = unvisited[nearest_idx]
-            
-            path.append(next_point)
-            current_point = next_point
-            unvisited = np.delete(unvisited, nearest_idx, axis=0)
-        
-        return np.array(path)
-    
-    def lawnmower_pattern(self, start_point, area_width, area_height, step_size=100):
-        """Generate lawnmower pattern coverage"""
-        x_coords = []
-        y_coords = []
-        
-        x, y = start_point
-        direction = 1  # 1 for right, -1 for left
-        
-        while y <= start_point[1] + area_height:
-            while (direction == 1 and x <= start_point[0] + area_width) or \
-                  (direction == -1 and x >= start_point[0]):
-                x_coords.append(x)
-                y_coords.append(y)
-                x += step_size * direction
-            
-            # Move up and reverse direction
-            y += step_size
-            direction *= -1
-            # Adjust x to stay within bounds
-            x = max(0, min(x, start_point[0] + area_width))
-        
-        return np.column_stack([x_coords, y_coords])
-    
-    def simulate_flight(self, method='nearest_neighbor'):
-        """Simulate drone flight pattern"""
-        if method == 'nearest_neighbor':
-            paths = []
-            for i, start_pos in enumerate(self.drone_positions):
-                # Assign hotspots to drones (simple partitioning)
-                drone_hotspots = self.hotspots[i::self.num_drones]
-                if len(drone_hotspots) > 0:
-                    path = self.nearest_neighbor_path(start_pos, drone_hotspots)
-                    paths.append(path)
-            return paths
-        
-        elif method == 'lawnmower':
-            paths = []
-            for i, start_pos in enumerate(self.drone_positions):
-                # Each drone covers a section of the grid
-                section_width = self.grid_size / self.num_drones
-                area_start = [i * section_width, 0]
-                path = self.lawnmower_pattern(area_start, section_width, self.grid_size)
-                paths.append(path)
-            return paths
-    
-    def visualize_simulation(self, paths, method_name):
-        """Visualize drone paths and hotspots"""
-        plt.figure(figsize=(12, 8))
-        
-        # Plot hotspots
-        plt.scatter(self.hotspots[:, 0], self.hotspots[:, 1], 
-                   c='red', s=100, label='Crime Hotspots', alpha=0.7)
-        
-        # Plot drone paths
-        colors = ['blue', 'green', 'orange', 'purple']
-        for i, path in enumerate(paths):
-            if len(path) > 0:
-                color = colors[i % len(colors)]
-                plt.plot(path[:, 0], path[:, 1], 
-                        color=color, linewidth=2, marker='o', 
-                        label=f'Drone {i+1} Path')
-                plt.scatter(path[0, 0], path[0, 1], 
-                          color=color, s=200, marker='s', edgecolors='black')
-        
-        plt.xlabel('X Coordinate (meters)')
-        plt.ylabel('Y Coordinate (meters)')
-        plt.title(f'Drone Surveillance Simulation - {method_name}')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.xlim(0, self.grid_size)
-        plt.ylim(0, self.grid_size)
-        plt.gca().set_aspect('equal')
-        plt.show()
-
-# Run simulation
-print("🚁 DRONE SURVEILLANCE SIMULATION")
-print("=" * 50)
-
-drone_sim = CrimeDroneSimulation(grid_size=1000, num_drones=2)
-
-# Generate crime hotspots (using actual hotspot data from our analysis)
-hotspots = drone_sim.generate_hotspots(num_hotspots=8)
-drone_sim.initialize_drones()
-
-print(f"Generated {len(hotspots)} crime hotspots")
-print(f"Initialized {drone_sim.num_drones} drones")
-
-# Test different path planning methods
-methods = ['nearest_neighbor', 'lawnmower']
-
-for method in methods:
-    print(f"\n📡 Testing {method.replace('_', ' ').title()} Method:")
-    paths = drone_sim.simulate_flight(method=method)
-    
-    # Calculate path statistics
-    total_distance = 0
-    for i, path in enumerate(paths):
-        if len(path) > 1:
-            distance = np.sum(np.sqrt(np.sum(np.diff(path, axis=0)**2, axis=1)))
-            total_distance += distance
-            print(f"  Drone {i+1}: {len(path)} waypoints, {distance:.0f} meters")
-    
-    print(f"  Total distance: {total_distance:.0f} meters")
-    
-    # Visualize
-    drone_sim.visualize_simulation(paths, method.replace('_', ' ').title())
-
-from statsmodels.tsa.statespace.sarimax import SARIMAX
-from prophet import Prophet
-
-# More sophisticated time series modeling
-def enhanced_forecasting(ts_data):
-    # Convert to Prophet format
-    prophet_df = pd.DataFrame({
-        'ds': ts_data.index,
-        'y': ts_data.values
-    })
-    
-    # Fit Prophet model
-    model = Prophet(yearly_seasonality=True)
-    model.fit(prophet_df)
-    
-    # Make future dataframe
-    future = model.make_future_dataframe(periods=2, freq='Y')
-    forecast = model.predict(future)
-    
-    return model, forecast
-
-# Apply enhanced forecasting
-try:
-    prophet_model, prophet_forecast = enhanced_forecasting(ts_data)
-    print("Prophet model fitted successfully")
-except Exception as e:
-    print(f"Prophet model error: {e}")

@@ -21,6 +21,183 @@ def load_data():
         df = pd.read_csv('SouthAfricaCrimeStats_v2.csv')
         
         # Get year columns (all columns from index 3 onwards)
+
+        import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import cdist
+import io
+import base64
+
+class CrimeDroneSimulation:
+    def __init__(self, grid_size=1000, num_drones=2):
+        self.grid_size = grid_size
+        self.num_drones = num_drones
+        self.hotspots = []
+        self.drone_positions = []
+        
+    def generate_hotspots(self, num_hotspots=10):
+        np.random.seed(42)
+        self.hotspots = np.random.rand(num_hotspots, 2) * self.grid_size
+        return self.hotspots
+    
+    def initialize_drones(self):
+        self.drone_positions = np.random.rand(self.num_drones, 2) * self.grid_size
+        return self.drone_positions
+    
+    def nearest_neighbor_path(self, start_position, points):
+        if len(points) == 0:
+            return np.array([start_position])
+        unvisited = points.copy()
+        path = [start_position]
+        current_point = start_position
+        while len(unvisited) > 0:
+            distances = cdist([current_point], unvisited)[0]
+            nearest_idx = np.argmin(distances)
+            next_point = unvisited[nearest_idx]
+            path.append(next_point)
+            current_point = next_point
+            unvisited = np.delete(unvisited, nearest_idx, axis=0)
+        return np.array(path)
+    
+    def simulate_flight(self, method='nearest_neighbor'):
+        paths = []
+        for i, start_pos in enumerate(self.drone_positions):
+            drone_hotspots = self.hotspots[i::self.num_drones]
+            if len(drone_hotspots) > 0:
+                path = self.nearest_neighbor_path(start_pos, drone_hotspots)
+                paths.append(path)
+            else:
+                paths.append(np.array([start_pos]))
+        return paths
+
+def create_drone_visualization(paths, hotspots, drone_positions, grid_size, method_name):
+    """Create and return a matplotlib figure as base64 string"""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Plot hotspots
+    ax.scatter(hotspots[:, 0], hotspots[:, 1], 
+               c='red', s=100, label='Crime Hotspots', alpha=0.7)
+    
+    # Plot drone paths
+    colors = ['blue', 'green', 'orange', 'purple']
+    for i, path in enumerate(paths):
+        color = colors[i % len(colors)]
+        ax.plot(path[:, 0], path[:, 1], 
+                color=color, linewidth=2, marker='o', 
+                label=f'Drone {i+1} Path')
+        ax.scatter(path[0, 0], path[0, 1], 
+                  color=color, s=200, marker='s', edgecolors='black')
+    
+    ax.set_xlabel('X Coordinate (meters)')
+    ax.set_ylabel('Y Coordinate (meters)')
+    ax.set_title(f'Drone Surveillance - {method_name}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, grid_size)
+    ax.set_ylim(0, grid_size)
+    
+    # Convert plot to image for Streamlit
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+# Add to your existing Streamlit app
+def drone_simulation_page():
+    st.header("🚁 Drone Surveillance Simulation")
+    st.markdown("Simulate drone patrol routes for crime hotspot monitoring")
+    
+    # Simulation controls
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        num_drones = st.slider("Number of Drones", 1, 4, 2)
+    
+    with col2:
+        num_hotspots = st.slider("Number of Hotspots", 5, 20, 8)
+    
+    with col3:
+        grid_size = st.slider("Grid Size (meters)", 500, 2000, 1000)
+    
+    # Run simulation button
+    if st.button("🚀 Run Drone Simulation", type="primary"):
+        with st.spinner("Running drone simulation..."):
+            # Initialize simulation
+            drone_sim = CrimeDroneSimulation(grid_size=grid_size, num_drones=num_drones)
+            hotspots = drone_sim.generate_hotspots(num_hotspots=num_hotspots)
+            drone_sim.initialize_drones()
+            
+            # Run simulation
+            paths = drone_sim.simulate_flight(method='nearest_neighbor')
+            
+            # Calculate statistics
+            total_distance = 0
+            drone_stats = []
+            for i, path in enumerate(paths):
+                if len(path) > 1:
+                    distance = np.sum(np.sqrt(np.sum(np.diff(path, axis=0)**2, axis=1)))
+                    total_distance += distance
+                    drone_stats.append({
+                        'drone': i+1,
+                        'waypoints': len(path),
+                        'distance': f"{distance:.0f} meters"
+                    })
+            
+            # Display statistics
+            st.subheader("📊 Simulation Results")
+            stats_col1, stats_col2, stats_col3 = st.columns(3)
+            
+            with stats_col1:
+                st.metric("Total Hotspots", len(hotspots))
+            
+            with stats_col2:
+                st.metric("Total Drones", num_drones)
+            
+            with stats_col3:
+                st.metric("Total Distance", f"{total_distance:.0f} meters")
+            
+            # Show drone details
+            st.write("**Drone Patrol Details:**")
+            for stat in drone_stats:
+                st.write(f"- Drone {stat['drone']}: {stat['waypoints']} waypoints, {stat['distance']}")
+            
+            # Display visualization
+            st.subheader("🗺️ Drone Patrol Routes")
+            image_buf = create_drone_visualization(
+                paths, hotspots, drone_sim.drone_positions, grid_size, 'Nearest Neighbor Path'
+            )
+            st.image(image_buf, use_column_width=True)
+            
+            # Additional insights
+            st.subheader("💡 Patrol Insights")
+            avg_distance_per_drone = total_distance / num_drones
+            efficiency = (len(hotspots) / total_distance) * 1000 if total_distance > 0 else 0
+            
+            insight_col1, insight_col2 = st.columns(2)
+            with insight_col1:
+                st.metric("Avg Distance per Drone", f"{avg_distance_per_drone:.0f} meters")
+            
+            with insight_col2:
+                st.metric("Patrol Efficiency", f"{efficiency:.2f} hotspots/km")
+
+# Integrate into your main app
+def main():
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Crime Analytics", "Drone Simulation"])
+    
+    if page == "Crime Analytics":
+        # Your existing crime analytics code here
+        st.title("🔍 South Africa Crime Analytics Dashboard")
+        # ... your existing crime analysis code
+        
+    elif page == "Drone Simulation":
+        drone_simulation_page()
+
+if __name__ == "__main__":
+    main()
         year_columns = [col for col in df.columns if '-' in col]
         
         # Reshape data

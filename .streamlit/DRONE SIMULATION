@@ -1,0 +1,111 @@
+# CORRECTED DRONE SIMULATION
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import cdist
+
+class CrimeDroneSimulation:
+    def __init__(self, grid_size=1000, num_drones=2):
+        self.grid_size = grid_size  # 1km x 1km grid
+        self.num_drones = num_drones
+        self.hotspots = []
+        self.drone_positions = []
+        
+    def generate_hotspots(self, num_hotspots=10):
+        """Generate random crime hotspots within the grid"""
+        np.random.seed(42)
+        self.hotspots = np.random.rand(num_hotspots, 2) * self.grid_size
+        return self.hotspots
+    
+    def initialize_drones(self):
+        """Initialize drone positions"""
+        self.drone_positions = np.random.rand(self.num_drones, 2) * self.grid_size
+        return self.drone_positions
+    
+    def nearest_neighbor_path(self, start_position, points):
+        """Calculate nearest neighbor path"""
+        if len(points) == 0:
+            return np.array([start_position])
+            
+        unvisited = points.copy()
+        path = [start_position]
+        current_point = start_position
+        
+        while len(unvisited) > 0:
+            # Find nearest unvisited point
+            distances = cdist([current_point], unvisited)[0]
+            nearest_idx = np.argmin(distances)
+            next_point = unvisited[nearest_idx]
+            
+            path.append(next_point)
+            current_point = next_point
+            unvisited = np.delete(unvisited, nearest_idx, axis=0)
+        
+        return np.array(path)
+    
+    def simulate_flight(self, method='nearest_neighbor'):
+        """Simulate drone flight pattern"""
+        paths = []
+        for i, start_pos in enumerate(self.drone_positions):
+            # Assign hotspots to drones
+            drone_hotspots = self.hotspots[i::self.num_drones]
+            if len(drone_hotspots) > 0:
+                path = self.nearest_neighbor_path(start_pos, drone_hotspots)
+                paths.append(path)
+            else:
+                paths.append(np.array([start_pos]))
+        return paths
+    
+    def visualize_simulation(self, paths, method_name):
+        """Visualize drone paths and hotspots"""
+        plt.figure(figsize=(10, 8))
+        
+        # Plot hotspots
+        plt.scatter(self.hotspots[:, 0], self.hotspots[:, 1], 
+                   c='red', s=100, label='Crime Hotspots', alpha=0.7)
+        
+        # Plot drone paths
+        colors = ['blue', 'green', 'orange', 'purple']
+        for i, path in enumerate(paths):
+            color = colors[i % len(colors)]
+            plt.plot(path[:, 0], path[:, 1], 
+                    color=color, linewidth=2, marker='o', 
+                    label=f'Drone {i+1} Path')
+            plt.scatter(path[0, 0], path[0, 1], 
+                      color=color, s=200, marker='s', edgecolors='black')
+        
+        plt.xlabel('X Coordinate (meters)')
+        plt.ylabel('Y Coordinate (meters)')
+        plt.title(f'Drone Surveillance - {method_name}')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.xlim(0, self.grid_size)
+        plt.ylim(0, self.grid_size)
+        plt.show()
+
+# Run simulation
+print("🚁 DRONE SURVEILLANCE SIMULATION")
+print("=" * 50)
+
+drone_sim = CrimeDroneSimulation(grid_size=1000, num_drones=2)
+hotspots = drone_sim.generate_hotspots(num_hotspots=8)
+drone_sim.initialize_drones()
+
+print(f"Generated {len(hotspots)} crime hotspots")
+print(f"Initialized {drone_sim.num_drones} drones")
+
+# Test path planning
+paths = drone_sim.simulate_flight(method='nearest_neighbor')
+
+# Calculate statistics
+total_distance = 0
+for i, path in enumerate(paths):
+    if len(path) > 1:
+        distance = np.sum(np.sqrt(np.sum(np.diff(path, axis=0)**2, axis=1)))
+        total_distance += distance
+        print(f"Drone {i+1}: {len(path)} waypoints, {distance:.0f} meters")
+
+print(f"Total surveillance distance: {total_distance:.0f} meters")
+
+# Visualize
+drone_sim.visualize_simulation(paths, 'Nearest Neighbor Path')

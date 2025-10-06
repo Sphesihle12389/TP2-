@@ -21,6 +21,26 @@ def load_data():
                      var_name='Year', 
                      value_name='Incidents')
     df_long['Year'] = pd.to_datetime(df_long['Year'].str.split('-').str[0])
+
+    from sklearn.model_selection import cross_val_score, GridSearchCV
+from xgboost import XGBClassifier
+
+# Hyperparameter tuning for better performance
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [3, 5, 7],
+    'learning_rate': [0.01, 0.1, 0.2]
+}
+
+xgb = XGBClassifier(random_state=42)
+grid_search = GridSearchCV(xgb, param_grid, cv=5, scoring='roc_auc')
+grid_search.fit(X_train_scaled, y_train)
+
+print("Best parameters:", grid_search.best_params_)
+print("Best cross-validation score:", grid_search.best_score_)
+
+# Feature engineering improvements
+# Add seasonal features, demographic data integration, etc.
     return df, df_long
 
 # Load data

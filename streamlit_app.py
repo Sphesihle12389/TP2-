@@ -342,3 +342,31 @@ for method in methods:
     
     # Visualize
     drone_sim.visualize_simulation(paths, method.replace('_', ' ').title())
+
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from prophet import Prophet
+
+# More sophisticated time series modeling
+def enhanced_forecasting(ts_data):
+    # Convert to Prophet format
+    prophet_df = pd.DataFrame({
+        'ds': ts_data.index,
+        'y': ts_data.values
+    })
+    
+    # Fit Prophet model
+    model = Prophet(yearly_seasonality=True)
+    model.fit(prophet_df)
+    
+    # Make future dataframe
+    future = model.make_future_dataframe(periods=2, freq='Y')
+    forecast = model.predict(future)
+    
+    return model, forecast
+
+# Apply enhanced forecasting
+try:
+    prophet_model, prophet_forecast = enhanced_forecasting(ts_data)
+    print("Prophet model fitted successfully")
+except Exception as e:
+    print(f"Prophet model error: {e}")
